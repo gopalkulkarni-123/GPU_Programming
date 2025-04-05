@@ -1,0 +1,7 @@
+Device : Tesla P100-SXM2-16GB
+Time for sequential transfer and execute (ms): 3.225248
+  max error: 1.192093e-07
+Time for asynchronous V1 transfer and execute (ms): 2.174784
+  max error: 1.192093e-07
+Time for asynchronous V2 transfer and execute (ms): 2.142080
+  max error: 1.192093e-07
