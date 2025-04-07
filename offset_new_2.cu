@@ -68,7 +68,7 @@ int main() {
     checkCuda( cudaEventDestroy(startEvent) );
     checkCuda( cudaEventDestroy(stopEvent) );
     checkCuda(cudaFree(deviceArray));
-    display(hostArray, n);
+    //display(hostArray, n);
     delete[] hostArray;
 
     return 0;
