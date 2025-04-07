@@ -6,6 +6,12 @@ __global__ void offsetDevice(float* testArray, int offsetValue, int numOfElement
     testArray[i] = testArray[i] * 2;
 }
 
+void display(float* array, int n){
+    for (int i = 0; i < n; ++i){
+        std::cout << "i : " << array[i] << std::endl;
+    }
+}
+
 inline cudaError_t checkCuda(cudaError_t result) {
 #if defined(DEBUG) || defined(_DEBUG)
     if (result != cudaSuccess) {
@@ -24,11 +30,11 @@ int main() {
     cudaEvent_t startEvent, stopEvent;
     float ms;
 
-    //int* hostArray = new int[n];
+    float* hostArray = new int[n];
 
-    //for (int i = 0; i < n; ++i) {
-    //    hostArray[i] = i;
-    //}
+    for (int i = 0; i < n; ++i) {
+        hostArray[i] = i;
+    }
 
     // Allocate, copy, execute, and free the device memory
     float* deviceArray;
@@ -39,6 +45,8 @@ int main() {
 
     checkCuda(cudaEventCreate(&startEvent));
     checkCuda(cudaEventCreate(&stopEvent));
+
+    checkCuda(cudaMemcpy(deviceArray, hostArray, size, cudaMemcpyHostToDevice))
 
     offsetDevice<<<numBlocks, blockSize>>>(deviceArray, 0, n);
 
@@ -52,13 +60,16 @@ int main() {
 
         checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
 
+        checkCuda(cudaMemcpy(hostArray, deviceArray, size, cudaMemcpyDeviceToHost))
+
         std::cout << (2 * n * sizeof(int) / (1024.0f * 1024.0f * 1024.0f)) / (ms / 1000.0f) << std::endl;
     }
 
     checkCuda( cudaEventDestroy(startEvent) );
     checkCuda( cudaEventDestroy(stopEvent) );
     checkCuda(cudaFree(deviceArray));
-    //delete[] hostArray;
+    display(hostArray, n);
+    delete[] hostArray;
 
     return 0;
 }
