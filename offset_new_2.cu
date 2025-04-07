@@ -46,7 +46,7 @@ int main() {
     checkCuda(cudaEventCreate(&startEvent));
     checkCuda(cudaEventCreate(&stopEvent));
 
-    checkCuda(cudaMemcpy(deviceArray, hostArray, size, cudaMemcpyHostToDevice))
+    checkCuda(cudaMemcpy(deviceArray, hostArray, size, cudaMemcpyHostToDevice));
 
     offsetDevice<<<numBlocks, blockSize>>>(deviceArray, 0, n);
 
@@ -60,7 +60,7 @@ int main() {
 
         checkCuda(cudaEventElapsedTime(&ms, startEvent, stopEvent));
 
-        checkCuda(cudaMemcpy(hostArray, deviceArray, size, cudaMemcpyDeviceToHost))
+        checkCuda(cudaMemcpy(hostArray, deviceArray, size, cudaMemcpyDeviceToHost));
 
         std::cout << (2 * n * sizeof(int) / (1024.0f * 1024.0f * 1024.0f)) / (ms / 1000.0f) << std::endl;
     }
