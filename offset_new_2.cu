@@ -30,7 +30,7 @@ int main() {
     cudaEvent_t startEvent, stopEvent;
     float ms;
 
-    float* hostArray = new int[n];
+    float* hostArray = new float[n];
 
     for (int i = 0; i < n; ++i) {
         hostArray[i] = i;
