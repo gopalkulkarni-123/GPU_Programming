@@ -6,7 +6,7 @@ struct Vector {
     float x, y, z;
 
     __device__ float norm() {
-        return sqrt((x * x) + (y * y) + (z * z));
+        return sqrt((x * x) + (y * y) + (z * z)) + 1;
     }
 };
 
