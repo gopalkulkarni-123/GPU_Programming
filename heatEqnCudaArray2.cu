@@ -25,7 +25,9 @@ struct BlockOfGrid {
     float r_y = alpha * dt / (2 * dy * dy);
     float tempDiff = 100.0;
     float maxTempDiff = 100.0;
-    float localGrid[50][50];
+    int d_rows = 100
+    int d_cols = 100
+    float localGrid[100][100];
 
     // Constructor with built-in boundary trimming
     BlockOfGrid(int x_min, int x_max, int y_min, int y_max)
@@ -40,13 +42,21 @@ struct BlockOfGrid {
         }
     }
 
-    __device__ void computeNextStateAll(const float grid[50][50]) {
+    __device__ inline int d_max(int a, int b) {
+        return a > b ? a : b;
+}
+
+    __device__ inline int d_min(int a, int b) {
+        return a < b ? a : b;
+    }
+
+    __device__ void computeNextStateAll(const float grid[100][100]) {
         maxTempDiff = 0.0;
-        for (int i = std::max(1, xMin); i < std::min(xMax, 100 - 1); ++i) {
-            for (int j = std::max(1, yMin); j < std::min(yMax, 100 - 1); ++j) {
+        for (int i = d_max(1, xMin); i < d_min(xMax, d_rows - 1); ++i) {
+            for (int j = d_max(1, yMin); j < d_min(yMax, d_cols - 1); ++j) {
                 tempDiff = r_x * (grid[i + 1][j] - 2 * grid[i][j] + grid[i - 1][j]) + r_y * (grid[i][j + 1] - 2 * grid[i][j] + grid[i][j - 1]);
                 localGrid[i - xMin][j - yMin] = grid[i][j] + tempDiff;
-                maxTempDiff = std::max(maxTempDiff, tempDiff);
+                maxTempDiff = d_max(maxTempDiff, tempDiff);
             }
         }
         if (xMin > 0 && xMax < 100 && yMin > 0 && yMax < 100) {
@@ -75,7 +85,7 @@ struct BlockOfGrid {
         }
     }
 
-    __device__ void updateGlobalGrid(float grid[25][25]) {
+    void updateGlobalGrid(float grid[100][100]) {
         for (int i = xMin; i < xMax; ++i) {
             for (int j = yMin; j < yMax; ++j) {
                 grid[i][j] = localGrid[i - xMin][j - yMin];
@@ -93,7 +103,7 @@ inline void checkCudaError(cudaError_t result, const char* file, int line) {
 
 #define CUDA_CHECK(result) checkCudaError(result, __FILE__, __LINE__)
 
-void initializeGrid(float grid){
+void initializeGrid(float grid[100][100]){
     // Initialize the grid with some values
     for (int i = 0; i < 100; ++i) {
         for (int j = 0; j < 100; ++j) {
@@ -111,16 +121,17 @@ void initializeGrid(float grid){
     }
 }
 
-__global__ void simulateHeat(BlockOfGrid* individualBlock, float grid[50][50]){
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    for (int i = idx; i < numBlocks; i += blockDim.x * gridDim.x) {
+__global__ void simulateHeat(BlockOfGrid* individualBlock, float grid[100][100]){
+    int idx = threadIdx.x;
+    for (int i = idx; i < 4; i += blockDim.x * gridDim.x) {
         individualBlock[i].computeNextStateAll(grid);  // Pass the grid here
     }
 }
 
 int main() {
-    float mainGrid [100][100];
-    initializeGrid(mainGrid);
+    float hostMainGrid [100][100];
+    float (*deviceMainGrid)[100];
+    initializeGrid(hostMainGrid);
 
     BlockOfGrid vectorOfBlocks[4] = {
         {0, 50, 0, 50},
@@ -129,14 +140,22 @@ int main() {
         {50, 100, 50, 100}
     };
 
+    //Allocatre device memory
     BlockOfGrid* deviceBlocks;
-    cudaMalloc(&deviceBlocks, sizeof(vectorOfBlocks) * 4);
-    //cudaMalloc(&mainGrid, sizeof(float) * 100 * 100);
+    cudaMalloc(&deviceBlocks, sizeof(BlockOfGrid) * 4);
+    cudaMalloc(&deviceMainGrid, sizeof(float) * 100 * 100);
 
     //Copy data to device
-    cudaMemcpy(deviceBlocks, vectorOfBlocks, sizeof(MatrixBlock) * 4, cudaMemcpyDeviceToHost);
+    cudaMemcpy(deviceBlocks, vectorOfBlocks, sizeof(BlockOfGrid) * 4, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceMainGrid, hostMainGrid, sizeof(float) * 100 * 100, cudaMemcpyHostToDevice);
 
-    processBlocks<<<1, 4>>>simulateHeat(deviceBlocks, )
-
-
-
+    //Kernel Launch
+    for (int i = 0; i < 1000; ++i){
+        simulateHeat<<<1, 4>>>(deviceBlocks, deviceMainGrid);
+        cudaMemcpy(hostMainGrid, deviceMainGrid, sizeof(float) * 100 * 100, cudaMemcpyDeviceToHost);
+    }
+    std::cout << "Simulation completed";
+    cudaFree(deviceBlocks);
+    cudaFree(deviceMainGrid);
+    return 0;
+}

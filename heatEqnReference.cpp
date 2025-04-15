@@ -192,7 +192,7 @@ int main(int argc, char* argv[]){
         //showGrid(mainGrid);
 
         // Compute the next state for each block
-        // /#pragma omp parallel for schedule(runtime) reduction(max: stopCriterion)
+        //#pragma omp parallel for schedule(runtime) reduction(max: stopCriterion)
         for (size_t i = 0; i < blocks.size(); ++i) {
             blocks[i].computeNextStateAll(mainGrid);
             stopCriterion = blocks[i].maxTempDiff;
@@ -205,13 +205,14 @@ int main(int argc, char* argv[]){
             blocks[i].updateGlobalGrid(mainGrid);
         }
 
-        //if(step%1000== 0){
+        if(step%1000 == 0){
             //std::cout << "Time step " << step << ":\n";
             //showGrid(mainGrid);
             //std::cout << mainGrid.size() << "X" << mainGrid[0].size() << std::endl;
             //saveCompressed(mainGrid, step, FILE_NAME);
-            //saveCSVFile(mainGrid, step, stopCriterion, FILE_NAME);
-            //}
+            saveCSVFile(mainGrid, step, stopCriterion, FILE_NAME);
+            }
+    
         ++step;
     }while (abs(stopCriterion) > EPS || step <= 5);
     auto end = std::chrono::high_resolution_clock::now();
