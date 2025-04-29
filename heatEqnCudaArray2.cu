@@ -44,7 +44,7 @@ struct BlockOfGrid {
 
     __device__ inline int d_max(int a, int b) {
         return a > b ? a : b;
-}
+    }   
 
     __device__ inline int d_min(int a, int b) {
         return a < b ? a : b;

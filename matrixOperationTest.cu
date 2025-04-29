@@ -19,22 +19,53 @@ struct BlockOfGrid {
         return localGrid[i * width + j];
     }
 
-    __device__ void compute() {
+    __device__ inline int d_max(int a, int b) {
+        return a > b ? a : b;
+    }   
+
+    __device__ inline int d_min(int a, int b) {
+        return a < b ? a : b;
+    }
+
+    __device__ void compute(float* mainGrid) {
         for (int i = 0; i < (xMax - xMin); ++i) {
             for (int j = 0; j < (yMax - yMin); ++j) {
-                at(i, j) = at(i, j) + 2.0f;
-                //localGrid[i * width + j] = localGrid[i * width + j] + 2.0f;
+                //localGrid[i * width + j] = mainGrid[(xMin + i) * width + (yMin + j)] + 2.0f;
+                printf("Check \n"); //Works!!
+                //printf("localGrid index = %d || mainGrid index = %d \n", (i * width + j), ((xMin + i) * width + (yMin + j))); Works!!
+                //printf("localGrid [0] = %f \n", localGrid[0]); Works!!   
             }
+        }
+    }
+
+    __device__ void debug_array(float* mainGrid) {
+        for (int i = 0; i < 10; ++i){
+            printf("%f \n", mainGrid[i]);
         }
     }
 };
 
-__global__ void processBlocks(BlockOfGrid* blocks, int numBlocks) {
+__global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* mainGrid) {
     int idx = threadIdx.x;
+    
+    // Ensure that the block index is within range
     if (idx < numBlocks) {
-        blocks[idx].compute();
+        // Compute the subgrid (localGrid) for this block
+        //blocks[idx].compute(mainGrid);
+        blocks[idx].debug_array(mainGrid);
+        //printf("check");
+        
+        // Now populate the results back into mainGrid
+        /*BlockOfGrid& block = blocks[idx];  // Reference to the current block
+        for (int i = block.xMin; i < block.xMax; ++i) {
+            for (int j = block.yMin; j < block.yMax; ++j) {
+                //mainGrid[i * block.width + j] = block.localGrid[(i - block.xMin) * block.width + (j - block.yMin)];
+                printf("check");
+            }
+        }*/
     }
 }
+
 
 int main() {
     float* mainGrid = new float[N * N];
@@ -51,6 +82,7 @@ int main() {
         }
     }
     mainGrid[(50 * 100 + 50)] = 205.0f;
+
     // Displays the main grid
     /*for (int i = 0; i < 100 * 100; ++i){
         std::cout << "mainGrid ["<< i <<"] " << mainGrid[i] << std::endl;
@@ -70,9 +102,12 @@ int main() {
         // Copy corresponding block from mainGrid
         for (int i = 0; i < BLOCK_SIZE; ++i) {
             for (int j = 0; j < BLOCK_SIZE; ++j) {
+
                 //int globalI = xMin + i;
                 //int globalJ = yMin + j;
+
                 localGridPtr[i * BLOCK_SIZE + j] = mainGrid[(b * BLOCK_SIZE*BLOCK_SIZE) + (i * BLOCK_SIZE + j)];
+
                 //std::cout << "[" << i * BLOCK_SIZE + j << "]" << "[" << globalI * N + globalJ << "]" << std::endl;
                 //std::cout <<"b = " << b <<"; i = " << i << "; j = " << j <<  "; i * BLOCK_SIZE + j = " << i * BLOCK_SIZE + j
                 // <<  "; (b+1) * i * BLOCK_SIZE + j = " << (b*BLOCK_SIZE*BLOCK_SIZE) + (i * BLOCK_SIZE + j) << std::endl;  
@@ -96,7 +131,7 @@ int main() {
     // Allocate memory on device
     float* deviceLocalGrids;
     cudaMalloc(&deviceLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
-    cudaMemcpy(deviceLocalGrids, hostLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy(deviceLocalGrids, hostLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyHostToDevice); //Check the syntax
 
     BlockOfGrid* deviceBlocks;
     for (int b = 0; b < NUM_BLOCKS; ++b) {
@@ -105,67 +140,75 @@ int main() {
     cudaMalloc(&deviceBlocks, sizeof(BlockOfGrid) * NUM_BLOCKS);
     cudaMemcpy(deviceBlocks, hostBlocks, sizeof(BlockOfGrid) * NUM_BLOCKS, cudaMemcpyHostToDevice);
 
-    // Launch kernel
-    processBlocks<<<1, NUM_BLOCKS>>>(deviceBlocks, NUM_BLOCKS);
-    cudaDeviceSynchronize();
+    for (int i = 0; i < 5; ++i){
+        // Launch kernel
+        processBlocks<<<1, NUM_BLOCKS>>>(deviceBlocks, NUM_BLOCKS, mainGrid);
+        cudaDeviceSynchronize();
 
-    // Copy back result
-    cudaMemcpy(hostLocalGrids, deviceLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyDeviceToHost);
+        // Copy back result
+        cudaMemcpy(hostLocalGrids, deviceLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyDeviceToHost);
 
-    float* d_input;
-    float* d_output;
-    cudaMalloc(&d_input, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
-    cudaMemcpy(d_input, hostLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyHostToDevice);
-    cudaMalloc(&d_output, sizeof(float));
+        float* d_input;
+        float* d_output;
+        cudaMalloc(&d_input, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
+        cudaMemcpy(d_input, hostLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyHostToDevice);
+        cudaMalloc(&d_output, sizeof(float));
 
-    // 2. Temporary storage
-    void* d_temp_storage = nullptr;
-    size_t temp_storage_bytes = 0;
+        // 2. Temporary storage
+        void* d_temp_storage = nullptr;
+        size_t temp_storage_bytes = 0;
 
-    // Get temp storage size
-    cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_input, d_output,
-                        NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
-    cudaMalloc(&d_temp_storage, temp_storage_bytes);
+        // Get temp storage size
+        cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_input, d_output,
+                            NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
+        cudaMalloc(&d_temp_storage, temp_storage_bytes);
 
-    // 3. Run max reduction
-    cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_input, d_output,
-                        NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
+        // 3. Run max reduction
+        cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_input, d_output,
+                            NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
 
-    // 4. Copy result to host
-    float maxValue;
-    cudaMemcpy(&maxValue, d_output, sizeof(float), cudaMemcpyDeviceToHost);
-    std::cout << "\n Max grid value across all blocks: " << maxValue << "\n";
+        // 4. Copy result to host
+        float maxValue;
+        cudaMemcpy(&maxValue, d_output, sizeof(float), cudaMemcpyDeviceToHost);
+        std::cout << "\n Max grid value across all blocks: " << maxValue << "\n";
 
-    // Cleanup CUB allocations
-    cudaFree(d_input);
-    cudaFree(d_output);
-    cudaFree(d_temp_storage);
+        // Cleanup CUB allocations
+        cudaFree(d_input);
+        cudaFree(d_output);
+        cudaFree(d_temp_storage);
 
-    // Copy back results to mainGrid for visualization
-    for (int b = 0; b < NUM_BLOCKS; ++b) {
-        //int xMin = hostBlocks[b].xMin;
-        //int yMin = hostBlocks[b].yMin;
-        float* localGridPtr = &hostLocalGrids[b * BLOCK_SIZE * BLOCK_SIZE];
+        // Copy back results to mainGrid for visualization
+        for (int b = 0; b < NUM_BLOCKS; ++b) {
+            //int xMin = hostBlocks[b].xMin;
+            //int yMin = hostBlocks[b].yMin;
+            float* localGridPtr = &hostLocalGrids[b * BLOCK_SIZE * BLOCK_SIZE];
 
-        for (int i = 0; i < BLOCK_SIZE; ++i) {
-            for (int j = 0; j < BLOCK_SIZE; ++j) {
-                //int globalI = xMin + i;
-                //int globalJ = yMin + j;
-                mainGrid[(b * BLOCK_SIZE*BLOCK_SIZE) + (i * BLOCK_SIZE + j)] = localGridPtr[i * BLOCK_SIZE + j];
+            for (int i = 0; i < BLOCK_SIZE; ++i) {
+                for (int j = 0; j < BLOCK_SIZE; ++j) {
+                    //int globalI = xMin + i;
+                    //int globalJ = yMin + j;
+                    mainGrid[(b * BLOCK_SIZE*BLOCK_SIZE) + (i * BLOCK_SIZE + j)] = localGridPtr[i * BLOCK_SIZE + j];
+                }
             }
         }
+
+        // Print sample 
+        /*for (int i = 0; i < NUM_BLOCKS; ++i) {
+            std::cout << "Block " << i << " sample (10,10): "
+                    << hostLocalGrids[i * BLOCK_SIZE * BLOCK_SIZE + 10 * BLOCK_SIZE + 10] << "\n";
+        }*/
+
+        //After computing
+        /*for (int i = 0; i < 100 * 100; ++i){
+            std::cout << "Grid ["<< i <<"] " << hostLocalGrids[i] << std::endl;
+        }*/
     }
 
-    // Print sample 
-    /*for (int i = 0; i < NUM_BLOCKS; ++i) {
-        std::cout << "Block " << i << " sample (10,10): "
-                  << hostLocalGrids[i * BLOCK_SIZE * BLOCK_SIZE + 10 * BLOCK_SIZE + 10] << "\n";
-    }*/
-
-    //After computing
-    for (int i = 0; i < 100 * 100; ++i){
-        std::cout << "Grid ["<< i <<"] " << hostLocalGrids[i] << std::endl;
+    // Displays the main grid
+    /*for (int i = 0; i < 100 * 100; ++i){
+        std::cout << "mainGrid ["<< i <<"] " << mainGrid[i] << std::endl;
     }
+    std::cout << "--------------------------------------------" << std::endl;*/
 
     // Cleanup
     cudaFree(deviceLocalGrids);
