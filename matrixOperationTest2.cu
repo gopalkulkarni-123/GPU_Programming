@@ -5,10 +5,23 @@
 #define N 100  // Global grid size
 #define NUM_BLOCKS 4  // Number of blocks
 #define BLOCK_SIZE 50  // Size of each block (50x50)
+#define ROWS 100
+#define COLS 100
+#define EPS 1e-3
 
 struct BlockOfGrid {
     int xMin, xMax, yMin, yMax, width;
     float* localGrid;  // Points to a subregion in the global grid
+
+    //Physical constants
+    float alpha = 0.75;
+    float dx = 1.0;
+    float dy = 1.0;
+    float dt = 0.1;
+    float r_x = alpha * dt/(2 * dx * dx);
+    float r_y = alpha * dt/(2 * dy * dy);
+    float tempDiff = 100.0;
+    float maxTempDiff = 0.0;
 
     __host__ __device__
     BlockOfGrid(int x_min = 0, int x_max = 0, int y_min = 0, int y_max = 0, int gridWidth = 0, float* gridPtr = nullptr)
@@ -19,52 +32,108 @@ struct BlockOfGrid {
         return localGrid[i * width + j];
     }
 
-    __device__ inline int d_max(int a, int b) {
+    __device__ inline float d_max(float a, float b) {
         return a > b ? a : b;
     }   
 
-    __device__ inline int d_min(int a, int b) {
+    __device__ inline float d_min(float a, float b) {
         return a < b ? a : b;
     }
 
-    __device__ void compute(float* dGrid) {
-
-    /*for (int i = 0; i < 100 * 100; ++i){
-        printf("dGrid[%d] = %f \n", i, dGrid[i]);
-    }*/
+    __device__ float compute(float* dGrid) {
 
         for (int i = 0; i < (xMax - xMin); ++i) {
             for (int j = 0; j < (yMax - yMin); ++j) {
-                localGrid[i * width + j] = dGrid[(xMin + i) * 100 + (yMin + j)] + 1.0f;
+                //localGrid[i * width + j] = dGrid[(xMin + i) * N + (yMin + j)] + 5.0f;
+                tempDiff = r_x * (
+                    dGrid[(xMin + i + 1) * N + (yMin + j)] -
+                    2 * dGrid[(xMin + i) * N + (yMin + j)] +
+                    dGrid[(xMin + i - 1) * N + (yMin + j)]
+                ) +
+                r_y * (
+                    dGrid[(xMin + i) * N + (yMin + j + 1)] -
+                    2 * dGrid[(xMin + i) * N + (yMin + j)] +
+                    dGrid[(xMin + i) * N + (yMin + j - 1)]
+                );
+                localGrid[i * width + j] = dGrid[(xMin + i) * N + (yMin + j)] + tempDiff;
+                //maxTempDiff = d_max(maxTempDiff, tempDiff);
             }
         }
+        //maxTempDiff = d_max(maxTempDiff, tempDiff);
+        //printf("Max Temp difference is %f \n", maxTempDiff);
+
+        if (xMin > 0 && xMax < ROWS && yMin > 0 && yMax < COLS) {
+            return;
+        }
+
+        // Set edge cells to 0 only if the block touches a boundary
+        if (xMin == 0) {  // Top boundary
+            for (int j = yMin; j < yMax; ++j) {
+                localGrid[(0) * width + (j - yMin)] = 100;
+            }
+        }
+        if (xMax == ROWS) {  // Bottom boundary
+            for (int j = yMin; j < yMax; ++j) {
+                localGrid[(xMax - xMin - 1) * width + (j - yMin)] = 100;
+            }
+        }
+        if (yMin == 0) {  // Left boundary
+            for (int i = xMin; i < xMax; ++i) {
+                localGrid[(i - xMin) * width + (0)] = 0;
+            }
+        }
+        if (yMax == COLS) {  // Right boundary
+            for (int i = xMin; i < xMax; ++i) {
+                localGrid[(i - xMin) * width + (yMax - yMin - 1)] = 0;
+            }
+        }
+        return maxTempDiff;
     }
 };
 
-__global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid) {
-
+__global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, float epsilon) {
+    __shared__ float sharedMax[NUM_BLOCKS];  // Or use blockDim.x if flexible
     int idx = threadIdx.x;
-    
-    if (idx < numBlocks) {
-        blocks[idx].compute(Grid);
-    }
 
-    // Now populate the results back into mainGrid
-        BlockOfGrid& block = blocks[idx];  // Reference to the current block
-        for (int i = block.xMin; i < block.xMax; ++i) {
-            for (int j = block.yMin; j < block.yMax; ++j) {
-                Grid[i * 100 + j] = block.localGrid[(i - block.xMin) * block.width + (j - block.yMin)];
+    float localMaxTemp = 0.0f;
+    float globalMaxTemp = 0.0f;
+    int i = 0;
+
+    do {
+        if (idx < numBlocks) {
+            // 1. Run compute and get local max temp delta
+            localMaxTemp = blocks[idx].compute(Grid);
+
+            // 2. Write back localGrid to global Grid
+            BlockOfGrid& block = blocks[idx];
+            for (int i = block.xMin; i < block.xMax; ++i) {
+                for (int j = block.yMin; j < block.yMax; ++j) {
+                    Grid[i * N + j] = block.localGrid[(i - block.xMin) * block.width + (j - block.yMin)];
+                }
             }
+
+            sharedMax[idx] = localMaxTemp;
+        } else {
+            sharedMax[idx] = 0.0f;
         }
+
+        __syncthreads();
+
+        // 3. In-place reduction to find max
+        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+            if (idx < stride) {
+                sharedMax[idx] = max(sharedMax[idx], sharedMax[idx + stride]);
+            }
+            __syncthreads();
+        }
+
+        globalMaxTemp = sharedMax[0];
+        __syncthreads();
+        ++i;
+        //printf("%f \n",globalMaxTemp);
+
+    } while (i < 10000);
 }
-
-/*__global__ void reduceMaxKernel(float* d_input, float* d_output, void* d_temp_storage, size_t temp_storage_bytes, int numItems) {
-    // Let only one thread do it (for simplicity)
-    if (threadIdx.x == 0 && blockIdx.x == 0) {
-        cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_input, d_output, numItems);
-    }
-}*/
-
 
 int main() {
     float* mainGrid = new float[N * N];
@@ -73,14 +142,19 @@ int main() {
     // Initialize mainGrid
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
-            if (i == 0 || j == 0 || i == N - 1 || j == N - 1) {
+            if (i == 0 || i == N - 1) {
                 mainGrid[(i * N) + j] = 100.0f;
             } else {
                 mainGrid[(i * N) + j] = 0.0f;
             }
         }
     }
-    mainGrid[(50 * 100 + 50)] = 205.0f;
+    //mainGrid[(50 * 100 + 50)] = 205.0f;
+    /*for (int i = 60; i < 80; ++i){
+        for (int j = 60; j <80; ++j){
+            mainGrid[(i * N) + j] = 100.0f;
+        }
+    }*/
 
     BlockOfGrid hostBlocks[NUM_BLOCKS];
     for (int b = 0; b < NUM_BLOCKS; ++b) {
@@ -120,61 +194,51 @@ int main() {
     cudaMalloc(&deviceBlocks, sizeof(BlockOfGrid) * NUM_BLOCKS);
     cudaMemcpy(deviceBlocks, hostBlocks, sizeof(BlockOfGrid) * NUM_BLOCKS, cudaMemcpyHostToDevice);
 
-    //Memory allocation for finding the maximum
-    /*float* d_input;
     float* d_output;
-    cudaMalloc(&d_input, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
-    cudaMemcpy(d_input, hostLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyHostToDevice);
     cudaMalloc(&d_output, sizeof(float));
 
-    // 2. Temporary storage
-    void* d_temp_storage = nullptr;
+    // Temporary storage
+    float* d_temp_storage = nullptr;
     size_t temp_storage_bytes = 0;
 
     // Get temp storage size
-    cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_input, d_output,
+    cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, deviceMainGrid, d_output,
                         NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
-    cudaMalloc(&d_temp_storage, temp_storage_bytes);*/
+    cudaMalloc(&d_temp_storage, temp_storage_bytes);
 
-    for (int i = 0; i < 5; ++i){
+    for (int i = 0; i < 1; ++i){
         // Launch kernel
-        processBlocks<<<1, NUM_BLOCKS>>>(deviceBlocks, NUM_BLOCKS, deviceMainGrid);
+        processBlocks<<<1, NUM_BLOCKS>>>(deviceBlocks, NUM_BLOCKS, deviceMainGrid, EPS);
         cudaDeviceSynchronize();
-
-        /*reduceMaxKernel<<<1, 32>>>(d_input, d_output, d_temp_storage, temp_storage_bytes, NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
-        cudaDeviceSynchronize();*/
-
-        // Copy back result
-        cudaMemcpy(hostLocalGrids, deviceLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyDeviceToHost);
-        cudaMemcpy(mainGrid, deviceMainGrid, sizeof(float) * N * N, cudaMemcpyDeviceToHost);
-
         
-        /*cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, d_input, d_output,
+        /*cub::DeviceReduce::Max(d_temp_storage, temp_storage_bytes, deviceMainGrid, d_output,
                             NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE);
 
 
         float maxValue;
         cudaMemcpy(&maxValue, d_output, sizeof(float), cudaMemcpyDeviceToHost);
         std::cout << "\n Max grid value across all blocks: " << maxValue << "\n";*/
-
-        // Displays the main grid
-        for (int j = 0; j < 100 * 100; ++j){
-            std::cout << "processedGrid ["<< j <<"] " << mainGrid[j] << " at iter " << i << std::endl;
+        cudaMemcpy(mainGrid, deviceMainGrid, sizeof(float) * N * N, cudaMemcpyDeviceToHost);
+        //After computing
+        std::cout << "i," << "j," << "value\n";
+        for (int l_1 = 0; l_1 < 100; ++l_1){
+            for (int l_2 = 0; l_2 < 100; ++l_2){
+                std::cout << l_1 << "," << l_2<< "," << mainGrid[l_1 * N + l_2] << std::endl;
+            }
         }
-        std::cout << "--------------------------------------------" << std::endl;
-        std::cout << "processedGrid [5050] = " << mainGrid[5050] << " at iter " << i << std::endl;
-
     }
+
+    // Copy back result
+    cudaMemcpy(hostLocalGrids, deviceLocalGrids, sizeof(float) * NUM_BLOCKS * BLOCK_SIZE * BLOCK_SIZE, cudaMemcpyDeviceToHost);
+    cudaMemcpy(mainGrid, deviceMainGrid, sizeof(float) * N * N, cudaMemcpyDeviceToHost);
 
     cudaFree(deviceLocalGrids);
     cudaFree(deviceBlocks);
+    cudaFree(deviceMainGrid);
+    cudaFree(d_output);
+
     delete[] hostLocalGrids;
     delete[] mainGrid;
-
-    // Cleanup CUB allocations
-    /*cudaFree(d_input);
-    cudaFree(d_output);
-    cudaFree(d_temp_storage);*/
 
     return 0;
 }
