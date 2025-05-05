@@ -2,11 +2,11 @@
 #include <cuda_runtime.h>
 #include <cub/cub.cuh>
 
-#define N 100  // Global grid size
-#define NUM_BLOCKS 4  // Number of blocks
+#define N 150  // Global grid size
+#define NUM_BLOCKS 9  // Number of blocks
 #define BLOCK_SIZE 50  // Size of each block (50x50)
-#define ROWS 100
-#define COLS 100
+#define ROWS 200
+#define COLS 200
 #define EPS 1e-3
 
 struct BlockOfGrid {
@@ -14,7 +14,7 @@ struct BlockOfGrid {
     float* localGrid;  // Points to a subregion in the global grid
 
     //Physical constants
-    float alpha = 0.75;
+    float alpha = 0.35;
     float dx = 1.0;
     float dy = 1.0;
     float dt = 0.1;
@@ -69,22 +69,22 @@ struct BlockOfGrid {
         // Set edge cells to 0 only if the block touches a boundary
         if (xMin == 0) {  // Top boundary
             for (int j = yMin; j < yMax; ++j) {
-                localGrid[(0) * width + (j - yMin)] = 100;
+                localGrid[(0) * width + (j - yMin)] = 0.0f;
             }
         }
         if (xMax == ROWS) {  // Bottom boundary
             for (int j = yMin; j < yMax; ++j) {
-                localGrid[(xMax - xMin - 1) * width + (j - yMin)] = 100;
+                localGrid[(xMax - xMin - 1) * width + (j - yMin)] = 0.0f;
             }
         }
         if (yMin == 0) {  // Left boundary
             for (int i = xMin; i < xMax; ++i) {
-                localGrid[(i - xMin) * width + (0)] = 0;
+                localGrid[(i - xMin) * width + (0)] = 0.0f;
             }
         }
         if (yMax == COLS) {  // Right boundary
             for (int i = xMin; i < xMax; ++i) {
-                localGrid[(i - xMin) * width + (yMax - yMin - 1)] = 0;
+                localGrid[(i - xMin) * width + (yMax - yMin - 1)] = 0.0f;
             }
         }
         return maxTempDiff;
@@ -132,7 +132,7 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
         ++i;
         //printf("%f \n",globalMaxTemp);
 
-    } while (i < 10000);
+    } while (i < 1);
 }
 
 int main() {
@@ -143,7 +143,7 @@ int main() {
     for (int i = 0; i < N; ++i) {
         for (int j = 0; j < N; ++j) {
             if (i == 0 || i == N - 1) {
-                mainGrid[(i * N) + j] = 100.0f;
+                mainGrid[(i * N) + j] = 0.0f;
             } else {
                 mainGrid[(i * N) + j] = 0.0f;
             }
@@ -158,10 +158,17 @@ int main() {
 
     BlockOfGrid hostBlocks[NUM_BLOCKS];
     for (int b = 0; b < NUM_BLOCKS; ++b) {
-        int xMin = (b / 2) * BLOCK_SIZE;
+        //std::cout << "b = " << b << std::endl;
+        //std::cout << "b/2 = " << (b/2) << " Block size = " << BLOCK_SIZE << std::endl; 
+        int xMin = (b / 3) * BLOCK_SIZE;
+        //std::cout << "xMin = " << xMin << std::endl;
         int xMax = xMin + BLOCK_SIZE;
-        int yMin = (b % 2) * BLOCK_SIZE;
+        //std::cout << "xMax = " << xMax << std::endl;
+        int yMin = (b % 3) * BLOCK_SIZE;
+        //std::cout << "yMin = " << yMin << std::endl;
         int yMax = yMin + BLOCK_SIZE;
+        //std::cout << "yMax = " << yMax << std::endl;
+        //std::cout << "==================================== \n";
         int width = yMax - yMin;
         float* localGridPtr = &hostLocalGrids[b * BLOCK_SIZE * BLOCK_SIZE];
 
@@ -175,6 +182,11 @@ int main() {
 
         hostBlocks[b] = BlockOfGrid(xMin, xMax, yMin, yMax, BLOCK_SIZE, localGridPtr);
     }
+
+    /*for (int i = 0; i < NUM_BLOCKS; ++i){
+        std::cout << "xMin: " << hostBlocks[i].xMin << ", yMin: " << hostBlocks[i].yMin
+         <<  ", xMax: " << hostBlocks[i].xMax <<  ", yMax: " << hostBlocks[i].yMax << std::endl;
+    }*/
 
     // Allocate memory on device
     float* deviceLocalGrids;
@@ -221,8 +233,8 @@ int main() {
         cudaMemcpy(mainGrid, deviceMainGrid, sizeof(float) * N * N, cudaMemcpyDeviceToHost);
         //After computing
         std::cout << "i," << "j," << "value\n";
-        for (int l_1 = 0; l_1 < 100; ++l_1){
-            for (int l_2 = 0; l_2 < 100; ++l_2){
+        for (int l_1 = 0; l_1 < N; ++l_1){
+            for (int l_2 = 0; l_2 < N; ++l_2){
                 std::cout << l_1 << "," << l_2<< "," << mainGrid[l_1 * N + l_2] << std::endl;
             }
         }
@@ -236,6 +248,9 @@ int main() {
     cudaFree(deviceBlocks);
     cudaFree(deviceMainGrid);
     cudaFree(d_output);
+
+    cudaFree(deviceBlocks);
+    cudaFree(d_temp_storage);
 
     delete[] hostLocalGrids;
     delete[] mainGrid;
