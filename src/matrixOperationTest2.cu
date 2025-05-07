@@ -5,8 +5,8 @@
 #define N 150  // Global grid size
 #define NUM_BLOCKS 9  // Number of blocks
 #define BLOCK_SIZE 50  // Size of each block (50x50)
-#define ROWS 200
-#define COLS 200
+#define ROWS 150
+#define COLS 150
 #define EPS 1e-3
 
 struct BlockOfGrid {
@@ -22,6 +22,8 @@ struct BlockOfGrid {
     float r_y = alpha * dt/(2 * dy * dy);
     float tempDiff = 100.0;
     float maxTempDiff = 0.0;
+    unsigned long long time = 0;
+
 
     __host__ __device__
     BlockOfGrid(int x_min = 0, int x_max = 0, int y_min = 0, int y_max = 0, int gridWidth = 0, float* gridPtr = nullptr)
@@ -41,6 +43,7 @@ struct BlockOfGrid {
     }
 
     __device__ float compute(float* dGrid) {
+        //unsigned long long start = clock64();
 
         for (int i = 0; i < (xMax - xMin); ++i) {
             for (int j = 0; j < (yMax - yMin); ++j) {
@@ -63,18 +66,20 @@ struct BlockOfGrid {
         //printf("Max Temp difference is %f \n", maxTempDiff);
 
         if (xMin > 0 && xMax < ROWS && yMin > 0 && yMax < COLS) {
-            return;
+            unsigned long long end = clock64();
+            time = time + (end - start);
+            return maxTempDiff;
         }
 
         // Set edge cells to 0 only if the block touches a boundary
         if (xMin == 0) {  // Top boundary
             for (int j = yMin; j < yMax; ++j) {
-                localGrid[(0) * width + (j - yMin)] = 0.0f;
+                localGrid[(0) * width + (j - yMin)] = 100.0f;
             }
         }
         if (xMax == ROWS) {  // Bottom boundary
             for (int j = yMin; j < yMax; ++j) {
-                localGrid[(xMax - xMin - 1) * width + (j - yMin)] = 0.0f;
+                localGrid[(xMax - xMin - 1) * width + (j - yMin)] = 100.0f;
             }
         }
         if (yMin == 0) {  // Left boundary
@@ -87,6 +92,9 @@ struct BlockOfGrid {
                 localGrid[(i - xMin) * width + (yMax - yMin - 1)] = 0.0f;
             }
         }
+
+        //unsigned long long end = clock64();
+        //time = time + (end - start);
         return maxTempDiff;
     }
 };
@@ -129,10 +137,16 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
 
         globalMaxTemp = sharedMax[0];
         __syncthreads();
-        ++i;
+        
         //printf("%f \n",globalMaxTemp);
+        ++i;
 
-    } while (i < 1);
+    } while (i < 10000);
+
+    /*for (int i_1 = 0; i_1 < NUM_BLOCKS; ++i_1){
+            printf("Time for block[%d] is %llu with xMin = %d; xMax = %d; yMin = %d; yMax = %d \n", i_1, blocks[i_1].time, blocks[i_1].xMin, blocks[i_1].xMax, blocks[i_1].yMin, blocks[i_1].yMax);
+        }*/
+        
 }
 
 int main() {
@@ -149,12 +163,6 @@ int main() {
             }
         }
     }
-    //mainGrid[(50 * 100 + 50)] = 205.0f;
-    /*for (int i = 60; i < 80; ++i){
-        for (int j = 60; j <80; ++j){
-            mainGrid[(i * N) + j] = 100.0f;
-        }
-    }*/
 
     BlockOfGrid hostBlocks[NUM_BLOCKS];
     for (int b = 0; b < NUM_BLOCKS; ++b) {
@@ -232,12 +240,12 @@ int main() {
         std::cout << "\n Max grid value across all blocks: " << maxValue << "\n";*/
         cudaMemcpy(mainGrid, deviceMainGrid, sizeof(float) * N * N, cudaMemcpyDeviceToHost);
         //After computing
-        std::cout << "i," << "j," << "value\n";
+        /*std::cout << "i," << "j," << "value\n";
         for (int l_1 = 0; l_1 < N; ++l_1){
             for (int l_2 = 0; l_2 < N; ++l_2){
                 std::cout << l_1 << "," << l_2<< "," << mainGrid[l_1 * N + l_2] << std::endl;
             }
-        }
+        }*/
     }
 
     // Copy back result
