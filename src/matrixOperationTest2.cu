@@ -7,7 +7,7 @@
 #define BLOCK_SIZE 50  // Size of each block (50x50)
 #define ROWS 150
 #define COLS 150
-#define EPS 1e-3
+#define EPS 1e-6
 
 struct BlockOfGrid {
     int xMin, xMax, yMin, yMax, width;
@@ -20,7 +20,7 @@ struct BlockOfGrid {
     float dt = 0.1;
     float r_x = alpha * dt/(2 * dx * dx);
     float r_y = alpha * dt/(2 * dy * dy);
-    float tempDiff = 100.0;
+    float tempDiff = 0.0;
     float maxTempDiff = 0.0;
     unsigned long long time = 0;
 
@@ -47,7 +47,7 @@ struct BlockOfGrid {
 
         for (int i = 0; i < (xMax - xMin); ++i) {
             for (int j = 0; j < (yMax - yMin); ++j) {
-                //localGrid[i * width + j] = dGrid[(xMin + i) * N + (yMin + j)] + 5.0f;
+
                 tempDiff = r_x * (
                     dGrid[(xMin + i + 1) * N + (yMin + j)] -
                     2 * dGrid[(xMin + i) * N + (yMin + j)] +
@@ -59,15 +59,15 @@ struct BlockOfGrid {
                     dGrid[(xMin + i) * N + (yMin + j - 1)]
                 );
                 localGrid[i * width + j] = dGrid[(xMin + i) * N + (yMin + j)] + tempDiff;
-                //maxTempDiff = d_max(maxTempDiff, tempDiff);
+                maxTempDiff = d_max(maxTempDiff, tempDiff);
             }
         }
         //maxTempDiff = d_max(maxTempDiff, tempDiff);
         //printf("Max Temp difference is %f \n", maxTempDiff);
 
         if (xMin > 0 && xMax < ROWS && yMin > 0 && yMax < COLS) {
-            unsigned long long end = clock64();
-            time = time + (end - start);
+            //unsigned long long end = clock64();
+            //time = time + (end - start);
             return maxTempDiff;
         }
 
@@ -103,14 +103,17 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
     __shared__ float sharedMax[NUM_BLOCKS];  // Or use blockDim.x if flexible
     int idx = threadIdx.x;
 
-    float localMaxTemp = 0.0f;
-    float globalMaxTemp = 0.0f;
+    float localMaxTemp = 100.0f;
+    //float globalMaxTemp = 0.0f;
+    float tempValues[2];
     int i = 0;
 
     do {
+        tempValues[0] = tempValues[1];
         if (idx < numBlocks) {
             // 1. Run compute and get local max temp delta
             localMaxTemp = blocks[idx].compute(Grid);
+            //printf("Max temp of my block is %f \n", localMaxTemp);
 
             // 2. Write back localGrid to global Grid
             BlockOfGrid& block = blocks[idx];
@@ -135,13 +138,16 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
             __syncthreads();
         }
 
-        globalMaxTemp = sharedMax[0];
+        tempValues[1] = sharedMax[0];
         __syncthreads();
         
-        //printf("%f \n",globalMaxTemp);
+        //printf("Idx is %d and Global max temp is %f < %f \n", idx, globalMaxTemp, epsilon);
+        if(idx == 0){
+            printf("Max temperature difference is %f \n", abs(tempValues[1] - tempValues[0]));
+        }
         ++i;
 
-    } while (i < 10000);
+    } while ((abs(tempValues[1] - tempValues[0]) > epsilon) || i < 10) ;
 
     /*for (int i_1 = 0; i_1 < NUM_BLOCKS; ++i_1){
             printf("Time for block[%d] is %llu with xMin = %d; xMax = %d; yMin = %d; yMax = %d \n", i_1, blocks[i_1].time, blocks[i_1].xMin, blocks[i_1].xMax, blocks[i_1].yMin, blocks[i_1].yMax);
