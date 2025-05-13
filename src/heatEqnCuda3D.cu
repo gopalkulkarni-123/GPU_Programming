@@ -3,39 +3,38 @@
 #include <cub/cub.cuh>
 
 #define N 150  // Global grid size
-#define NUM_BLOCKS 9  // Number of blocks
+#define NUM_BLOCKS 27  // Number of blocks
 #define BLOCK_SIZE 50  // Size of each block (50x50)
 #define ROWS 150
 #define COLS 150
-//#define DEPTH 150
+#define DEPTH 150
 #define EPS 1e-6
 
 struct BlockOfGrid {
-    int xMin, xMax, yMin, yMax, width; //zMin, zMax;
+    int xMin, xMax, yMin, yMax, zMin, zMax;
+    int blockLength, blockBreadth, blockDepth;
     float* localGrid;  // Points to a subregion in the global grid
 
     //Physical constants
     float alpha = 0.35;
     float dx = 1.0;
     float dy = 1.0;
-    //dz = 1.0;
+    float dz = 1.0;
     float dt = 0.1;
     float r_x = alpha * dt/(2 * dx * dx);
     float r_y = alpha * dt/(2 * dy * dy);
-    //float r_z =  alpha * dt/(2 * dz * dz);
+    float r_z =  alpha * dt/(2 * dz * dz);
     float tempDiff = 0.0;
     float maxTempDiff = 0.0;
     unsigned long long time = 0;
 
 
     __host__ __device__
-    BlockOfGrid(int x_min = 0, int x_max = 0, int y_min = 0, int y_max = 0, int gridWidth = 0, float* gridPtr = nullptr) // add zmin, zmax etc and take care of gridwidth and etc. 
-        : xMin(x_min), xMax(x_max), yMin(y_min), yMax(y_max), width(gridWidth), localGrid(gridPtr) {}
+    BlockOfGrid(int x_min = 0, int x_max = 0, int y_min = 0, int y_max = 0, int z_min = 0, int z_max = 0, float* gridPtr = nullptr) // add zmin, zmax etc and take care of gridwidth and etc. 
+        : xMin(x_min), xMax(x_max), yMin(y_min), yMax(y_max), zMin(z_min), zMax(z_max), localGrid(gridPtr), 
+        blockLength(y_max - y_min), blockBreadth(x_max - x_min), blockDepth(z_max - z_min) {}
 
     // Utility functions
-    __device__ float& at(int i, int j) {
-        return localGrid[i * width + j];
-    }
 
     __device__ inline float d_max(float a, float b) {
         return a > b ? a : b;
@@ -48,54 +47,83 @@ struct BlockOfGrid {
     __device__ float compute(float* dGrid) {
         //unsigned long long start = clock64();
 
-        for (int i = 0; i < (xMax - xMin); ++i) {
-            for (int j = 0; j < (yMax - yMin); ++j) { // add another loop to go through the z direction
+        for (int i = 0; i < blockBreadth; ++i) {
+            for (int j = 0; j < blockLength; ++j) { 
+                for (int k = 0; k < blockDepth; ++k) {
 
-                tempDiff = r_x * ( // Update the temp difference calculation accordingly.
-                    dGrid[(xMin + i + 1) * N + (yMin + j)] -
-                    2 * dGrid[(xMin + i) * N + (yMin + j)] +
-                    dGrid[(xMin + i - 1) * N + (yMin + j)]
-                ) +
-                r_y * (
-                    dGrid[(xMin + i) * N + (yMin + j + 1)] -
-                    2 * dGrid[(xMin + i) * N + (yMin + j)] +
-                    dGrid[(xMin + i) * N + (yMin + j - 1)]
-                );
-                localGrid[i * width + j] = dGrid[(xMin + i) * N + (yMin + j)] + tempDiff; // index = k * (height * width) + j * width + i;
-                maxTempDiff = d_max(maxTempDiff, tempDiff);
+                    tempDiff = r_x * (
+                        dGrid[(xMin + i + 1) * (N*N) + (yMin + j) * N + (zMin + k)] -
+                        2 * dGrid[(xMin + i) * (N*N) + (yMin + j) * N + (zMin + k)] +
+                        dGrid[(xMin + i - 1) * (N*N) + (yMin + j) * N + (zMin + k)]
+                    ) +
+                    r_y * (
+                        dGrid[(xMin + i) * (N*N) + (yMin + j + 1) * N + (zMin + k)] -
+                        2 * dGrid[(xMin + i) * (N*N) + (yMin + j) * N + (zMin + k)] +
+                        dGrid[(xMin + i) * (N*N) + (yMin + j - 1) * N + (zMin + k)]
+                    ) +
+                    r_z * (
+                        dGrid[(xMin + i) * (N*N) + (yMin + j) * N + (zMin + k + 1)] -
+                        2 * dGrid[(xMin + i) * (N*N) + (yMin + j) * N + (zMin + k)] +
+                        dGrid[(xMin + i) * (N*N) + (yMin + j) * N + (zMin + k - 1)]
+                    );
+
+                    localGrid[i * width + j] = dGrid[(xMin + i) * (N*N) + (yMin + j) * N + (zMin + k)] + tempDiff; // index = k * (height * width) + j * width + i;
+                    maxTempDiff = d_max(maxTempDiff, tempDiff);
+                }
             }
         }
         //maxTempDiff = d_max(maxTempDiff, tempDiff);
         //printf("Max Temp difference is %f \n", maxTempDiff);
 
-        if (xMin > 0 && xMax < ROWS && yMin > 0 && yMax < COLS) {
+        if (xMin > 0 && xMax < ROWS && yMin > 0 && yMax < COLS && zMin > 0 && zMax < DEPTH) {
             //unsigned long long end = clock64();
             //time = time + (end - start);
             return maxTempDiff;
         }
 
         // Set edge cells to 0 only if the block touches a boundary
-        if (xMin == 0) {  // Top boundary
+        if (xMin == 0) {  // Left Boundary
             for (int j = yMin; j < yMax; ++j) {
-                localGrid[(0) * width + (j - yMin)] = 100.0f;
+                for (int k = zMin; k < zMax; ++k){
+                    localGrid[(0) * (blockLength * blockBreadth) + (j - yMin)*(blockBreadth) + (k - zMin)] = 100.0f;
+                }
             }
         }
-        if (xMax == ROWS) {  // Bottom boundary
+        if (xMax == ROWS) {  // Right Boundary boundary
             for (int j = yMin; j < yMax; ++j) {
-                localGrid[(xMax - xMin - 1) * width + (j - yMin)] = 100.0f;
+                for (int k = zMin; k < zMax; ++k){
+                    localGrid[(xMax - 1 - xMin) * (blockLength * blockBreadth) + (j - yMin)*(blockBreadth) + (k - zMin)] = 100.0f;
+                }
             }
         }
-        if (yMin == 0) {  // Left boundary
+        if (yMin == 0) {  // Bottom boundary
             for (int i = xMin; i < xMax; ++i) {
-                localGrid[(i - xMin) * width + (0)] = 0.0f;
+                for (int k = zMin; k < zMax; ++k){
+                    localGrid[(i - xMin) * (blockLength * blockBreadth) + (0)*(blockBreadth) + (k - zMin)] = 0.0f;
+                }
             }
         }
-        if (yMax == COLS) {  // Right boundary
+        if (yMax == COLS) {  // Top boundary
             for (int i = xMin; i < xMax; ++i) {
-                localGrid[(i - xMin) * width + (yMax - yMin - 1)] = 0.0f;
+                for (int k = zMin; k < zMax; ++k){
+                    localGrid[(i - xMin) * (blockLength * blockBreadth) + (yMax - 1 - yMin)*(blockBreadth) + (k - zMin)] = 0.0f;
+                }
             }
-            //Add boundary conditions for the z directions as well
+        if (zMin == 0){
+            for (int i = xMin; i < xMax; ++i){
+                for (int j = yMin; j < yMax; ++j){
+                    localGrid[(i - xMin) * (blockLength * blockBreadth) + (j - yMin)*(blockBreadth) + (0)] = 0.0f;
+                }
+            }
         }
+        if (zMax == DEPTH){
+            for (int i = xMin; i < xMax; ++i){
+                for (int j = yMin; j < yMax; ++j){
+                    localGrid[(i - xMin) * (blockLength * blockBreadth) + (j - yMin)*(blockBreadth) + (zMax - 1 - zMin)] = 0.0f;
+                }
+            }
+        }
+    }
 
         //unsigned long long end = clock64();
         //time = time + (end - start);
@@ -123,7 +151,11 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
             BlockOfGrid& block = blocks[idx];
             for (int i = block.xMin; i < block.xMax; ++i) {
                 for (int j = block.yMin; j < block.yMax; ++j) {
-                    Grid[i * N + j] = block.localGrid[(i - block.xMin) * block.width + (j - block.yMin)]; // change indexng to accomadate depth
+                    for(int k = block.zMin; k < block.zMax; ++k){
+                        Grid[i * (N*N) + j*n + k] = block.localGrid[(i - block.xMin) * (block.blockLength*block.blockBreadth) 
+                                                    + (j - block.yMin)*(block.blockBreadth) 
+                                                    + (k - block.zMin)];
+                    }
                 }
             }
 
@@ -165,11 +197,13 @@ int main() {
 
     // Initialize mainGrid
     for (int i = 0; i < N; ++i) {
-        for (int j = 0; j < N; ++j) { // Add the z direction iteration
-            if (i == 0 || i == N - 1) {
-                mainGrid[(i * N) + j] = 0.0f;
-            } else {
-                mainGrid[(i * N) + j] = 0.0f;
+        for (int j = 0; j < N; ++j) {
+            for (int k = 0; k < N; ++k) { // Add the z direction iteration
+                if (i == 0 || i == N - 1) {
+                    mainGrid[(i * (N*N) + j*N + k)] = 0.0f;
+                } else {
+                    mainGrid[(i * (N*N) + j*N + k)] = 0.0f;
+                }
             }
         }
     }
@@ -186,11 +220,15 @@ int main() {
         //std::cout << "yMin = " << yMin << std::endl;
         int yMax = yMin + BLOCK_SIZE;
         //std::cout << "yMax = " << yMax << std::endl;
+        int zMin = (b / 9) * BLOCK_SIZE;
+        //std::cout << "zMin = " << zMin << std::endl;
+        int zMax = zMin + BLOCK_SIZE;
+        //std::cout << "zMax = " << zMax << std::endl;
         //std::cout << "==================================== \n";
 
         //add zMin and zMax
 
-        int width = yMax - yMin;
+        //int width = yMax - yMin;
         float* localGridPtr = &hostLocalGrids[b * BLOCK_SIZE * BLOCK_SIZE];
 
         // Copy corresponding block from mainGrid
