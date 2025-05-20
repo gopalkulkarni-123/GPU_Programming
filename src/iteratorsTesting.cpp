@@ -24,10 +24,8 @@ int main(){
     for (int z = 0; z < Depth; ++z){
         for(int y = 0; y < Breadth; ++y){
             for (int x = 0; x < Length; ++x){
-                if(x == 0){
                     int mappedValue = flatten(x, y, z);
                     std::cout << "(" << x << "," << y << "," << z << ") = " << mappedValue << std::endl;
-                }
             }
         }
     }
