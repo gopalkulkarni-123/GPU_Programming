@@ -85,58 +85,67 @@ struct BlockOfGrid {
         if (xMin == 0) {  // Left Boundary
             for (int z = zMin; z < zMax; ++z) {
                 for (int y = yMin; y < yMax; ++y){
-                    localGrid[((z - zMin) * (ROWS * COLS)) + ((y - yMin)*(ROWS)) + (0)] = 200.0f;
-                    //printf("Left Boundary index = %d \n", ((z - zMin) * (ROWS * COLS)) + ((y - yMin)*(ROWS)) + (0));
+                    localGrid[(((z - zMin) * (blockBreadth * blockLength)) + ((y - yMin)*(blockLength)) + (0))] = 100.0f;
+                    //printf("Left Boundary index = %d \n", ((z - zMin) * (blockBreadth * blockLength)) + ((y - yMin)*(blockLength)) + (0));
                     //printf("z = %d; (z - zMin) = %d; index = %d \n", z, (z - zMin), (((z - zMin) * (ROWS * COLS)) + ((y - yMin)*(ROWS)) + (0)));
                     //printf("Left Boundary index = %d \n", ((z - zMin) * (ROWS * COLS)) + ((y - yMin)*(ROWS)) + (0));
                     //printf("yMin = %d; yMax = %d \n", yMin, yMax);    
                 }
             }
         }
+
         if (xMax == ROWS) {  // Right Boundary
             for (int z = zMin; z < zMax; ++z) {
                 for (int y = yMin; y < yMax; ++y){
-                    localGrid[((z - zMin) * (ROWS * COLS)) + ((y - yMin)*(ROWS)) + (xMax - 1 - xMin)] = 100.0f;
-                    //printf("Right Boundary index = %d \n", ((z - zMin) * (ROWS * COLS)) + ((y - yMin)*(ROWS)) + (ROWS - 1));
+                    localGrid[(((z - zMin) * (blockBreadth * blockLength)) + ((y - yMin)*(blockLength)) + (xMax - 1 - xMin))] = 200.0f;
+                    //printf("Right Boundary index = %d \n", ((z - zMin) * (blockBreadth * blockLength)) + ((y - yMin)*(blockLength)) + (xMax - 1 - xMin));
                 }
             }
         }
+
         if (yMin == 0) {  // Bottom boundary
             for (int z = zMin; z < zMax; ++z) {
                 for (int x = xMin; x < xMax; ++x){
-                    localGrid[(z - zMin) * (ROWS * COLS) + (0)*(ROWS) + (x - xMin)] = 0.0f;
-                    //printf("Bottom Boundary index = %d \n", ((z - zMin) * (ROWS * COLS) + (0)*(ROWS) + (x - xMin)));
+                    localGrid[(z - zMin) * (blockBreadth * blockLength) + (0)*(ROWS) + (x - xMin)] = 300.0f;
+                    //printf("Bottom Boundary index = %d \n", ((z - zMin) * (blockBreadth * blockLength) + (0)*(blockLength) + (x - xMin)));
                 }
             }
         }
+
         if (yMax == COLS) {  // Top boundary
             for (int z = zMin; z < zMax; ++z) {
                 for (int x = xMin; x < xMax; ++x){
-                    localGrid[(z - zMin) * (ROWS * COLS) + (COLS - 1)*(ROWS ) + (x - xMin)] = 0.0f;
-                    //printf("Top Boundary index = %d \n", ((z - zMin) * (ROWS * COLS) + (COLS - 1)*(ROWS ) + (x - xMin)));
+                    localGrid[(z - zMin) * (blockBreadth * blockLength) + (yMax - 1 - yMin)*(blockLength) + (x - xMin)] = 400.0f;
+                    //printf("Top Boundary index = %d \n", ((z - zMin) * (blockBreadth * blockLength) + (yMax - 1 - yMin)*(blockLength) + (x - xMin)));
+                    //printf("zMin = %d || z = %d || zMax = %d \n", zMin, z, zMax);
                 }
             }
+        }
+
         if (zMin == 0){
             for (int y = yMin; y < yMax; ++y){
                 for (int x = xMin; x < xMax; ++x){
-                    localGrid[(0) * (ROWS * COLS) + (y - yMin)*(ROWS) + (x - xMin)] = 0.0f;
-                    //printf("Front Boundary index = %d \n", ((0) * (ROWS * COLS) + (y - yMin)*(ROWS) + (x - xMin)));
+                    localGrid[(0) * (blockBreadth * blockLength) + (y - yMin)*(blockLength) + (x - xMin)] = 500.0f;
+                    //printf("Front Boundary index = %d \n", ((0) * (blockBreadth * blockLength) + (y - yMin)*(blockLength) + (x - xMin)));
+                    //printf("xMin = %d || xMax = %d \n yMin = %d || yMax = %d \n zMin = %d || zMax = %d \n -------- \n", xMin, xMax, yMin, yMax, zMin, zMax);
                 }
             }
         }
+
         if (zMax == DEPTH){
             for (int y = yMin; y < yMax; ++y){
                 for (int x = xMin; x < xMax; ++x){
-                    localGrid[(DEPTH - 1) * (ROWS * COLS) + (y - yMin)*(ROWS) + (x - xMin)] = 0.0f;
-                    //printf("Back Boundary index = %d \n", ((DEPTH - 1) * (ROWS * COLS) + (y - yMin)*(ROWS) + (x - xMin)));
+                    localGrid[(zMax - 1 - zMin) * (blockBreadth * blockLength) + (y - yMin)*(blockLength) + (x - xMin)] = 600.0f;
+                    //printf("Back Boundary index = %d \n", ((zMax - 1 - zMin) * (blockBreadth * blockLength) + (y - yMin)*(blockLength) + (x - xMin)));
+                    //printf("xMin = %d || xMax = %d \n yMin = %d || yMax = %d \n zMin = %d || zMax = %d \n -------- \n", xMin, xMax, yMin, yMax, zMin, zMax);
                 }
             }
         }
-    }
+    
 
         //unsigned long long end = clock64();
         //time = time + (end - start);
-        return maxTempDiff;
+    return maxTempDiff;
     }
 };
 
@@ -161,13 +170,13 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
             for (int z = block.zMin; z < block.zMax; ++z) {
                 for (int y = block.yMin; y < block.yMax; ++y) {
                     for(int x = block.xMin; x < block.xMax; ++x){
-                        Grid[(z * (N*N)) + y*N + x] = block.localGrid[(z - block.zMin) * (block.blockLength*block.blockBreadth) 
+                        Grid[(z * (N*N)) + (y*N) + x] = block.localGrid[(z - block.zMin) * (block.blockBreadth*block.blockLength) 
                                                     + (y - block.yMin)*(block.blockLength) 
                                                     + (x - block.xMin)];
-                        
-                        /*printf("Grid index = %d ||  local index = %d \n", ((z * (N*N)) + y*N + x),  ((z - block.zMin) * (block.blockLength*block.blockBreadth) 
-                                                    + (y - block.yMin)*(block.blockLength) 
-                                                    + (x - block.xMin)));*/
+                        /*if (block.xMin == 0){                        
+                            printf("Id = %d || Grid index = %d ||  local index = %d \n",(idx), ((z * (N*N)) + y*N + x),  ((z - block.zMin) * (ROWS*COLS) 
+                                                        + (y - block.yMin)*(ROWS) 
+                                                        + (x - block.xMin)));}*/
                     }
                 }
             }
@@ -196,7 +205,7 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
         }*/
         ++count;
 
-    } while(count < 1000);
+    } while(count < 1);
     //while ((abs(tempValues[1] - tempValues[0])) > epsilon || i < 10) ;
     /*for (int i_1 = 0; i_1 < NUM_BLOCKS; ++i_1){
             printf("Time for block[%d] is %llu with xMin = %d; xMax = %d; yMin = %d; yMax = %d \n", i_1, blocks[i_1].time, blocks[i_1].xMin, blocks[i_1].xMax, blocks[i_1].yMin, blocks[i_1].yMax);
@@ -250,8 +259,8 @@ int main() {
         for (int z = 0; z < BLOCK_SIZE; ++z) {
             for (int y = 0; y < BLOCK_SIZE; ++y) {
                 for (int x = 0; x < BLOCK_SIZE; ++x){
-
-                    localGridPtr[(z * BLOCK_SIZE * BLOCK_SIZE) + (y*BLOCK_SIZE) + x] = mainGrid[(b * BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE) + ((z * BLOCK_SIZE * BLOCK_SIZE) + (y * BLOCK_SIZE) + x)];
+                    localGridPtr[((z * BLOCK_SIZE * BLOCK_SIZE) + (y*BLOCK_SIZE) + x)] = mainGrid[((b * BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE) + ((z * BLOCK_SIZE * BLOCK_SIZE) + (y * BLOCK_SIZE) + x))];
+                    //std::cout << "Local grid : " << ((z * BLOCK_SIZE * BLOCK_SIZE) + (y*BLOCK_SIZE) + x) << "||" << "Main Grid : " << ((b * BLOCK_SIZE * BLOCK_SIZE * BLOCK_SIZE) + ((z * BLOCK_SIZE * BLOCK_SIZE) + (y * BLOCK_SIZE) + x)) << std::endl;
                 }
             }
         }
@@ -261,9 +270,11 @@ int main() {
 
     
     /*for (int i = 0; i < NUM_BLOCKS; ++i){
-        std::cout << "xMin: " << hostBlocks[i].xMin << ", xMax: " << hostBlocks[i].xMax
+        if (hostBlocks[i].xMax == ROWS){
+            std::cout << "xMin: " << hostBlocks[i].xMin << ", xMax: " << hostBlocks[i].xMax
          <<  ", yMin: " << hostBlocks[i].yMin <<  ", yMax: " << hostBlocks[i].yMax
          <<  ", zMin: " << hostBlocks[i].zMin <<  ", zMax: " << hostBlocks[i].zMax <<std::endl;
+        }
     }*/
 
     // Allocate memory on device
