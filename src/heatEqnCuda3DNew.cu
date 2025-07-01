@@ -3,8 +3,8 @@
 #include <cub/cub.cuh>
 
 #define N 150  // Global grid size
-#define NUM_BLOCKS 27  // Number of blocks (3x3x3)
-#define BLOCK_SIZE 50  // Size of each block 
+#define NUM_BLOCKS 125  // Number of blocks (5x5x5)
+#define BLOCK_SIZE 30  // Size of each block 
 #define ROWS 150
 #define COLS 150
 #define DEPTH 150
@@ -208,49 +208,52 @@ __global__ void processBlocks(BlockOfGrid* blocks, int numBlocks, float* Grid, f
     int idx = threadIdx.x;
 
     float localMaxTemp = 0.0f;
-    
-    if (idx < numBlocks) {
-        // 1. Run compute and get local max temp delta
-        localMaxTemp = blocks[idx].compute(Grid);
-        sharedMax[idx] = localMaxTemp;
-    } else {
-        sharedMax[idx] = 0.0f;
-    }
-
-    __syncthreads();
-
-    // 2. Reduction to find global maximum temperature difference
-    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
-        if (idx < stride) {
-            sharedMax[idx] = max(sharedMax[idx], sharedMax[idx + stride]);
+    int count = 0;
+    do{
+        if (idx < numBlocks) {
+            // 1. Run compute and get local max temp delta
+            localMaxTemp = blocks[idx].compute(Grid);
+            sharedMax[idx] = localMaxTemp;
+        } else {
+            sharedMax[idx] = 0.0f;
         }
+
         __syncthreads();
-    }
 
-    __syncthreads();  // Ensure reduction is complete
+        // 2. Reduction to find global maximum temperature difference
+        for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+            if (idx < stride) {
+                sharedMax[idx] = max(sharedMax[idx], sharedMax[idx + stride]);
+            }
+            __syncthreads();
+        }
 
-    // 3. Write back localGrid to global Grid
-    if (idx < numBlocks) {
-        BlockOfGrid& block = blocks[idx];
-        for (int z = block.zMin; z < block.zMax; ++z) {
-            for (int y = block.yMin; y < block.yMax; ++y) {
-                for (int x = block.xMin; x < block.xMax; ++x) {
-                    int globalIdx = (z * N * N) + (y * N) + x;
-                    int localIdx = ((z - block.zMin) * block.blockBreadth * block.blockLength) + 
-                                   ((y - block.yMin) * block.blockLength) + 
-                                   (x - block.xMin);
-                    Grid[globalIdx] = block.localGrid[localIdx];
+        __syncthreads();  // Ensure reduction is complete
+
+        // 3. Write back localGrid to global Grid
+        if (idx < numBlocks) {
+            BlockOfGrid& block = blocks[idx];
+            for (int z = block.zMin; z < block.zMax; ++z) {
+                for (int y = block.yMin; y < block.yMax; ++y) {
+                    for (int x = block.xMin; x < block.xMax; ++x) {
+                        int globalIdx = (z * N * N) + (y * N) + x;
+                        int localIdx = ((z - block.zMin) * block.blockBreadth * block.blockLength) + 
+                                    ((y - block.yMin) * block.blockLength) + 
+                                    (x - block.xMin);
+                        Grid[globalIdx] = block.localGrid[localIdx];
+                    }
                 }
             }
         }
-    }
 
-    // 4. Check convergence
-    if (idx == 0) {
-        if (sharedMax[0] < epsilon) {
-            *converged = 1;
+        // 4. Check convergence
+        if (idx == 0) {
+            if (sharedMax[0] < epsilon) {
+                *converged = 1;
+            }
         }
-    }
+        ++ count;
+    } while(count < MAX_ITERATIONS);
 }
 
 int main() {
@@ -332,56 +335,53 @@ int main() {
 
     // Simulation loop
     int iteration = 0;
-    std::cout << "Starting heat diffusion simulation..." << std::endl;
+    /*std::cout << "Starting heat diffusion simulation..." << std::endl;
     std::cout << "Hot sources: z=0 and z=8 planes (100°C)" << std::endl;
     std::cout << "Cold boundaries: x=0, x=8, y=0, y=8 edges (0°C)" << std::endl;
-    std::cout << "Initial interior: 20°C" << std::endl;
+    std::cout << "Initial interior: 20°C" << std::endl;*/
     
-    do {
-        hostConverged = 0;
-        cudaMemcpy(deviceConverged, &hostConverged, sizeof(int), cudaMemcpyHostToDevice);
+    hostConverged = 0;
+    cudaMemcpy(deviceConverged, &hostConverged, sizeof(int), cudaMemcpyHostToDevice);
+    
+    // Launch kernel
+    processBlocks<<<1, NUM_BLOCKS>>>(deviceBlocks, NUM_BLOCKS, deviceMainGrid, EPS, deviceConverged);
+    cudaDeviceSynchronize();
+    
+    // Check for CUDA errors
+    cudaError_t error = cudaGetLastError();
+    if (error != cudaSuccess) {
+        std::cerr << "CUDA error: " << cudaGetErrorString(error) << std::endl;
+        //break;
+    }
         
-        // Launch kernel
-        processBlocks<<<1, NUM_BLOCKS>>>(deviceBlocks, NUM_BLOCKS, deviceMainGrid, EPS, deviceConverged);
-        cudaDeviceSynchronize();
-        
-        // Check for CUDA errors
-        cudaError_t error = cudaGetLastError();
-        if (error != cudaSuccess) {
-            std::cerr << "CUDA error: " << cudaGetErrorString(error) << std::endl;
-            break;
-        }
-        
-        cudaMemcpy(&hostConverged, deviceConverged, sizeof(int), cudaMemcpyDeviceToHost);
+        /*cudaMemcpy(&hostConverged, deviceConverged, sizeof(int), cudaMemcpyDeviceToHost);
         iteration++;
         
         if (iteration % 100 == 0) {
             cudaMemcpy(mainGrid, deviceMainGrid, sizeof(float) * N * N * N, cudaMemcpyDeviceToHost);
             float centerTemp = mainGrid[(4 * N * N) + (4 * N) + 4];  // Center point
             std::cout << "Iteration " << iteration << ", Center temperature: " << centerTemp << "°C" << std::endl;
-        }
-        
-    } while (!hostConverged && iteration < MAX_ITERATIONS);
+        }*/
 
-    std::cout << "Simulation completed after " << iteration << " iterations" << std::endl;
+    /*std::cout << "Simulation completed after " << iteration << " iterations" << std::endl;
     if (hostConverged) {
         std::cout << "Converged to epsilon = " << EPS << std::endl;
     } else {
         std::cout << "Maximum iterations reached" << std::endl;
-    }
+    }*/
 
     // Copy results back
     cudaMemcpy(mainGrid, deviceMainGrid, sizeof(float) * N * N * N, cudaMemcpyDeviceToHost);
 
     // Output some key temperatures for validation
-    std::cout << "\nKey temperature points:" << std::endl;
+    /*std::cout << "\nKey temperature points:" << std::endl;
     std::cout << "Center (4,4,4): " << mainGrid[(4 * N * N) + (4 * N) + 4] << "°C" << std::endl;
     std::cout << "Front face center (4,4,0): " << mainGrid[(0 * N * N) + (4 * N) + 4] << "°C" << std::endl;
     std::cout << "Back face center (4,4,8): " << mainGrid[(8 * N * N) + (4 * N) + 4] << "°C" << std::endl;
-    std::cout << "Side edge (0,4,4): " << mainGrid[(4 * N * N) + (4 * N) + 0] << "°C" << std::endl;
+    std::cout << "Side edge (0,4,4): " << mainGrid[(4 * N * N) + (4 * N) + 0] << "°C" << std::endl;*/
 
     // Output results in CSV format
-    std::cout << "\nFinal temperature distribution:" << std::endl;
+    //std::cout << "\nFinal temperature distribution:" << std::endl;
     std::cout << "x,y,z,temperature" << std::endl;
     for (int z = 0; z < N; ++z) {
         for (int y = 0; y < N; ++y) {
